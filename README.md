@@ -1,4 +1,4 @@
-# CentOS Cloud SIG image repository.
+# CentOS Cloud SIG image repository/Base image creation guide
 
 Images are generated from kickstart scripts in the [sig-cloud-instance-build](https://github.com/CentOS/sig-cloud-instance-build/) repository.
 
