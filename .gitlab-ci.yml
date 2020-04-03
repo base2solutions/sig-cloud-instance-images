@@ -1,0 +1,48 @@
+# Kaniko has a bug where the symlinks are not handled correctly. The build
+# finishes without an error, but the resulting image will be broken and won't
+# load in Docker Engine. The `debug-v0.16.0` version is not effected, do not
+# upgrade the kaniko executor image until the fix is released. For details see:
+# https://github.com/GoogleContainerTools/kaniko/issues/1038
+#
+# Kaniko does not support .tar.xz files yet. The CentOS repo that we are forking
+# is unfortunately using that. A workaround is to repackage the XZ archive to GZ
+# and patch the Dockerfile before building it. For details see:
+# https://github.com/GoogleContainerTools/kaniko/issues/1107
+
+.set_registry_creds: &set_registry_creds
+  - echo "Setting Docker image registry credentials for kaniko"
+  - echo "{\"auths\":{\"$DOCKER_REGISTRY\":{\"username\":\"$DOCKER_REGISTRY_USER\",\"password\":\"$DOCKER_REGISTRY_PASSWORD\"}}}" > /kaniko/.docker/config.json
+
+.repackage_xz_to_gz: &repackage_xz_to_gz
+  - echo "Repackaging XZ archive as GZ"
+  - TARXZ=$(sed -rn 's/^ADD (.*\.tar\.xz).*$/\1/p' $CI_PROJECT_DIR/docker/Dockerfile)
+  - TARGZ=$(echo $TARXZ | sed 's/.tar.xz/.tar.gz/')
+  - xz -dck $CI_PROJECT_DIR/docker/$TARXZ | gzip > $CI_PROJECT_DIR/docker/$TARGZ
+  - echo "Repackaged $TARXZ to $TARGZ"
+
+.patch_dockerfile: &patch_dockerfile
+  - echo "Patching Dockerfile to use GZ archive instead of XZ"
+  - echo "Dockerfile before patching:"
+  - cat $CI_PROJECT_DIR/docker/Dockerfile
+  - sed -i "s/$TARXZ/$TARGZ/g" $CI_PROJECT_DIR/docker/Dockerfile
+  - echo "Dockerfile after patching:"
+  - cat $CI_PROJECT_DIR/docker/Dockerfile
+
+.build_image: &build_image
+  - echo "Building Docker image with kaniko"
+  - /kaniko/executor
+    --dockerfile $CI_PROJECT_DIR/docker/Dockerfile
+    --context dir://$CI_PROJECT_DIR/docker/
+    --destination $DOCKER_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME
+  - echo "Pushed image to $DOCKER_REGISTRY_IMAGE:$CI_COMMIT_REF_NAME"
+
+build:
+  stage: build
+  image:
+    name: gcr.io/kaniko-project/executor:debug-v0.16.0
+    entrypoint: [""]
+  script:
+    - *set_registry_creds
+    - *repackage_xz_to_gz
+    - *patch_dockerfile
+    - *build_image
